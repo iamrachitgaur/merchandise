@@ -1,0 +1,91 @@
+Auth0
+
+const express = require('express');
+const session = require('express-session');
+const axios = require('axios');
+
+const app = express();
+
+// Configure session
+app.use(session({
+  secret: 'your-session-secret',
+  resave: false,
+  saveUninitialized: true
+}));
+
+// Auth0 configuration
+const auth0Domain = 'YOUR_AUTH0_DOMAIN';
+const clientID = 'YOUR_AUTH0_CLIENT_ID';
+const clientSecret = 'YOUR_AUTH0_CLIENT_SECRET';
+const callbackURL = 'http://localhost:3000/callback';
+
+// Redirect to Auth0 for login
+app.get('/login', (req, res) => {
+  const redirectUri = `https://${auth0Domain}/authorize?` +
+    `client_id=${clientID}&` +
+    `response_type=code&` +
+    `redirect_uri=${callbackURL}&` +
+    `scope=openid profile email`;
+
+  res.redirect(redirectUri);
+});
+
+// Handle the callback from Auth0
+app.get('/callback', async (req, res) => {
+  const { code } = req.query;
+
+  try {
+    // Exchange the authorization code for tokens
+    const tokenResponse = await axios.post(`https://${auth0Domain}/oauth/token`, {
+      client_id: clientID,
+      client_secret: clientSecret,
+      code,
+      grant_type: 'authorization_code',
+      redirect_uri: callbackURL
+    });
+
+    const accessToken = tokenResponse.data.access_token;
+
+    // Use the access token to fetch user profile
+    const userResponse = await axios.get(`https://${auth0Domain}/userinfo`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    req.session.user = userResponse.data; // Store user info in session
+    res.redirect('/success');
+  } catch (error) {
+    console.error('Error during callback:', error);
+    res.redirect('/failure');
+  }
+});
+
+// Success route
+app.get('/success', (req, res) => {
+  if (req.session.user) {
+    res.send(`Welcome ${req.session.user.name}`);
+  } else {
+    res.redirect('/');
+  }
+});
+
+// Failure route
+app.get('/failure', (req, res) => {
+  res.send('Failed to login');
+});
+
+// Logout route
+app.get('/logout', (req, res) => {
+  req.session.destroy(err => {
+    res.redirect('/');
+  });
+});
+
+// Home route
+app.get('/', (req, res) => {
+  res.send('<a href="/login">Login</a>');
+});
+
+// Start server
+app.listen(3000, () => {
+  console.log('Server listening on http://localhost:3000');
+});
